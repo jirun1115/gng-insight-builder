@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ghg-insight-builder | 세계 부문별 온실가스 배출량 분석</title>
+    <!-- 순수 CSS 연결 -->
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- Chart.js CDN (데이터 시각화용) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-container">
+            <div class="logo-area">
+                <span class="logo-icon">🌍</span>
+                <div>
+                    <h1>ghg-insight-builder</h1>
+                    <p class="subtitle">세계 부문별 온실가스 배출량 데이터 분석 웹앱</p>
+                </div>
+            </div>
+            <div class="status-badge-area">
+                <span id="server-status" class="badge badge-pending">서버 확인 중...</span>
+                <span id="api-key-status" class="badge badge-pending">API Key 확인 중...</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <!-- 1단계: CSV 업로드 및 데이터셋 진단 -->
+        <section class="card step-section" id="step-1-section">
+            <div class="step-header">
+                <span class="step-num">Step 1</span>
+                <h2>온실가스 CSV 업로드 및 데이터 진단</h2>
+            </div>
+            <p class="section-desc">
+                세계 부문별 온실가스 배출량 CSV 파일을 업로드하면, 인코딩 감지·헤더 검사·연도별 충실도·집계 행 덩어리를 자동으로 정밀 진단합니다.
+            </p>
+
+            <div class="upload-dropzone" id="dropzone">
+                <input type="file" id="file-input" accept=".csv" style="display: none;">
+                <div class="dropzone-content">
+                    <span class="dropzone-icon">📁</span>
+                    <p class="dropzone-text"><strong>클릭하여 CSV 파일 선택</strong> 또는 파일을 여기로 끌어다 놓으세요</p>
+                    <p class="dropzone-hint">data/ghg-emissions-by-sector.csv 파일 지원 (최대 10MB)</p>
+                </div>
+            </div>
+
+            <!-- 발표/시연 전용 원클릭 시작 버튼 -->
+            <div class="demo-quick-box" style="margin-top: 1rem; text-align: center;">
+                <button id="btn-load-sample" class="btn btn-primary" style="width: 100%; padding: 0.95rem; font-size: 1.05rem; background: linear-gradient(135deg, #059669 0%, #0d9488 100%); box-shadow: 0 4px 12px rgba(5,150,105,0.25);">
+                    🚀 준비된 공식 온실가스 데이터셋으로 원클릭 시작하기 (발표·데모용)
+                </button>
+            </div>
+
+            <div class="notice-box info-notice">
+                ℹ️ <strong>안내:</strong> 업로드된 파일은 서버 디스크에 영구 저장되지 않으며, 서버 메모리에만 1개 데이터셋으로 유지됩니다. 서버가 재시작되면 데이터는 초기화됩니다.
+            </div>
+
+            <!-- 진단 결과 패널 -->
+            <div id="inspect-result-panel" class="hidden-panel">
+                <div class="result-divider"></div>
+                <div class="result-title-bar">
+                    <h3>📊 데이터 건강검진 결과 (14개 항목 진단)</h3>
+                    <span id="inspect-summary-badge" class="badge badge-success">진단 완료</span>
+                </div>
+
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <span class="metric-label">파일명 (크기)</span>
+                        <strong class="metric-value" id="diag-filename">-</strong>
+                    </div>
+                    <div class="metric-card">
+                        <span class="metric-label">인코딩 / 건너뛴 줄</span>
+                        <strong class="metric-value" id="diag-encoding">-</strong>
+                    </div>
+                    <div class="metric-card">
+                        <span class="metric-label">데이터 크기</span>
+                        <strong class="metric-value" id="diag-shape">-</strong>
+                    </div>
+                    <div class="metric-card highlight-metric">
+                        <span class="metric-label">권장 기준연도</span>
+                        <strong class="metric-value" id="diag-rec-year">-</strong>
+                    </div>
+                </div>
+
+                <div id="diag-warnings-container" class="warning-box hidden-panel">
+                    <strong>⚠️ 발견된 주의사항:</strong>
+                    <ul id="diag-warnings-list"></ul>
+                </div>
+
+                <div class="details-accordion">
+                    <details>
+                        <summary>감지된 온실가스 11개 배출 부문 및 열 목록 보기</summary>
+                        <div class="tag-cloud" id="diag-sector-tags"></div>
+                    </details>
+                    <details>
+                        <summary>데이터 미리보기 (상위 10행)</summary>
+                        <div class="table-responsive">
+                            <table class="data-table" id="diag-preview-table">
+                                <thead><tr id="preview-thead-tr"></tr></thead>
+                                <tbody id="preview-tbody"></tbody>
+                            </table>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </section>
+
+        <!-- 신규 추가: 자연어 질문 & 맞춤 시각화 창 (Step 1.5) -->
+        <section class="card step-section disabled-section" id="ask-section">
+            <div class="step-header">
+                <span class="step-num">Ask AI</span>
+                <h2>💡 온실가스 데이터에 대해 자유롭게 질문하기</h2>
+            </div>
+            <p class="section-desc">
+                궁금한 점을 일상 대화처럼 물어보세요. 데이터에 근거하여 답변해 드리고, 바로 확인해볼 수 있는 맞춤 차트 버튼을 만들어 드립니다!
+            </p>
+
+            <div class="sample-queries-box">
+                <span class="sample-label">추천 질문을 눌러보세요:</span>
+                <div class="query-chips">
+                    <button class="chip-btn" data-query="2023년 전기 및 열 생산 온실가스 배출량 세계 1~10위 국가와 대한민국을 비교해줘.">🏆 2023년 발전 부문 TOP 10과 한국 비교</button>
+                    <button class="chip-btn" data-query="부문별로 온실가스 배출량이 어떻게 차이가 나는지 비교해줘.">🏭 부문별 배출량 차이 비교</button>
+                    <button class="chip-btn" data-query="인구 수의 증가는 온실가스 배출과 어떠한 밀접한 관련이 있는지 분석해줘.">👥 인구수 증가와 배출량의 관계</button>
+                </div>
+            </div>
+
+            <div class="ask-input-group">
+                <input type="text" id="ask-input" placeholder="예: 2023년 수송(교통) 부문 배출량이 가장 많은 나라는 어디야?" />
+                <button id="btn-ask-submit" class="btn btn-primary">질문하기 ➔</button>
+            </div>
+
+            <div id="ask-loading" class="loading-state hidden-panel">
+                <div class="spinner"></div>
+                <p>Gemini가 데이터를 검색하여 답변과 맞춤 차트를 구성하고 있습니다...</p>
+            </div>
+
+            <div id="ask-answer-box" class="ask-answer-container hidden-panel">
+                <div class="ask-answer-header">
+                    <h4>🤖 Gemini의 데이터 답변</h4>
+                </div>
+                <div id="ask-answer-text" class="ask-answer-body"></div>
+                
+                <!-- 맞춤 시각화 연결 버튼 영역 -->
+                <div id="ask-vis-action" class="ask-vis-box hidden-panel">
+                    <div class="vis-info">
+                        <strong id="ask-vis-title">📊 맞춤 시각화 차트가 준비되었습니다!</strong>
+                        <p id="ask-vis-desc">이 분석을 실제로 계산하여 차트와 수치 표로 확인하시겠습니까?</p>
+                    </div>
+                    <button id="btn-trigger-custom-run" class="btn btn-secondary">
+                        📊 이 맞춤 시각화 실행하기 ➔
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2단계: Gemini의 분석 제안 목록 -->
+        <section class="card step-section disabled-section" id="step-2-section">
+            <div class="step-header">
+                <span class="step-num">Step 2</span>
+                <h2>Gemini의 추천 분석 코스 (도구 카탈로그)</h2>
+            </div>
+            <p class="section-desc">
+                Gemini가 진단 결과를 보고, 등록된 12개 도구 카탈로그 내에서 가장 통찰력 있는 분석 3~5개를 추천했습니다.
+            </p>
+
+            <div class="action-btn-group" style="justify-content: flex-start; margin-top: 0; margin-bottom: 1rem;">
+                <button id="btn-request-suggest" class="btn btn-outline-sm">
+                    🔄 추천 분석 새로고침
+                </button>
+            </div>
+
+            <div id="suggest-loading" class="loading-state hidden-panel">
+                <div class="spinner"></div>
+                <p>Gemini가 데이터 구조를 분석하여 맞춤 제안을 생성하고 있습니다...</p>
+            </div>
+
+            <div id="suggestions-container" class="suggestions-grid">
+                <!-- 동적으로 카드 삽입 -->
+            </div>
+        </section>
+
+        <!-- 3단계: Pandas 계산 및 차트 시각화 -->
+        <section class="card step-section disabled-section" id="step-3-section">
+            <div class="step-header">
+                <span class="step-num">Step 3</span>
+                <h2>Pandas 수치 계산 및 데이터 시각화</h2>
+            </div>
+            <p class="section-desc">
+                오차 없는 파이썬(Pandas) 엔진이 배출량을 직접 계산하고, 사용한 행 수와 제외한 행 수를 투명하게 밝힙니다.
+            </p>
+
+            <div id="run-loading" class="loading-state hidden-panel">
+                <div class="spinner"></div>
+                <p>Pandas가 수치를 계산하고 차트 데이터를 렌더링 중입니다...</p>
+            </div>
+
+            <div id="run-result-container" class="hidden-panel">
+                <!-- 통계 영수증 -->
+                <div class="receipt-card">
+                    <h4>🧾 통계 계산 감사 영수증 (투명성 보장)</h4>
+                    <div class="receipt-grid">
+                        <div><strong>실행 도구:</strong> <span id="receipt-tool">-</span></div>
+                        <div><strong>기준 시점:</strong> <span id="receipt-period">-</span></div>
+                        <div><strong>계산 사용 행 수:</strong> <span id="receipt-used-rows">-</span></div>
+                        <div><strong>제외된 행 수:</strong> <span id="receipt-excluded-rows">-</span></div>
+                        <div><strong>배출량 단위:</strong> <span id="receipt-unit">-</span></div>
+                    </div>
+                    <div class="receipt-reason">
+                        <strong>제외 사유:</strong> <span id="receipt-reason-text">-</span>
+                    </div>
+                    <div class="receipt-caution">
+                        <strong>주의사항:</strong> <span id="receipt-caution-text">-</span>
+                    </div>
+                </div>
+
+                <!-- 차트 렌더 영역 -->
+                <div class="chart-wrapper">
+                    <canvas id="analysis-chart"></canvas>
+                </div>
+
+                <!-- 수치 데이터 요약 표 -->
+                <div class="table-responsive" id="run-table-wrapper" style="margin-top: 1.5rem;">
+                    <table class="data-table" id="run-data-table">
+                        <thead id="run-table-head"></thead>
+                        <tbody id="run-table-body"></tbody>
+                    </table>
+                </div>
+
+                <div class="action-btn-group" style="margin-top: 1.5rem;">
+                    <button id="btn-request-explain" class="btn btn-primary">
+                        ✍️ 계산된 숫자로 Gemini 심층 보고서 작성하기 (Step 4로 이동)
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4단계: Gemini 결과 해석 (모드 A vs 모드 B) -->
+        <section class="card step-section disabled-section" id="step-4-section">
+            <div class="step-header">
+                <span class="step-num">Step 4</span>
+                <h2>Gemini 심층 해석 보고서</h2>
+            </div>
+            <p class="section-desc">
+                계산된 숫자만 바탕으로 거짓말 없는 정직한 보고서를 작성합니다. 비교를 위한 허술한 모드 A도 체험할 수 있습니다.
+            </p>
+
+            <div class="mode-selector-box">
+                <label class="mode-option">
+                    <input type="radio" name="explain-mode" value="B" checked>
+                    <div>
+                        <strong>모드 B (정식 모드 - 추천)</strong>
+                        <p>Pandas 계산 결과만 전달하여 8대 규칙(숫자 날조 금지, 출처/단위 표기, 7대 규격 목차)을 엄격히 준수합니다.</p>
+                    </div>
+                </label>
+                <label class="mode-option">
+                    <input type="radio" name="explain-mode" value="A">
+                    <div>
+                        <strong>모드 A (비교용 허술한 모드)</strong>
+                        <p>계산 결과를 주지 않고 막연하게 "보고서 써줘"라고 요청했을 때 발생하는 환각(추정) 위험을 비교합니다.</p>
+                    </div>
+                </label>
+            </div>
+
+            <div class="action-btn-group">
+                <button id="btn-generate-report" class="btn btn-secondary">
+                    📄 보고서 생성 시작
+                </button>
+            </div>
+
+            <div id="explain-loading" class="loading-state hidden-panel">
+                <div class="spinner"></div>
+                <p>Gemini가 계산 결과를 바탕으로 엄격한 보고서를 작성하고 있습니다...</p>
+            </div>
+
+            <div id="explain-result-container" class="report-container hidden-panel">
+                <div class="report-header">
+                    <h3 id="report-title">📋 온실가스 데이터 분석 보고서</h3>
+                    <button id="btn-copy-report" class="btn btn-outline-sm">📋 보고서 복사</button>
+                </div>
+                <div id="report-content" class="markdown-body">
+                    <!-- 보고서 마크다운 변환 본문 -->
+                </div>
+
+                <!-- 신규 추가: 보고서 기반 대화형 Q&A 챗봇 영역 -->
+                <div class="report-chat-section" id="report-chat-container">
+                    <div class="chat-header">
+                        <h4>💬 보고서 내용에 대해 무엇이든 물어보세요! (실시간 Q&A)</h4>
+                        <p>보고서의 숫자나 해석에 대해 이해가 안 가는 부분을 편하게 질문하세요.</p>
+                    </div>
+
+                    <div class="chat-suggestion-chips">
+                        <button class="chat-chip-btn" data-chat="왜 중국의 배출량이 미국보다 3배 이상 많은 거야?">왜 중국의 배출량이 가장 많은가요?</button>
+                        <button class="chat-chip-btn" data-chat="보고서에 적힌 tCO2e 단위가 무슨 뜻인지 아주 쉽게 알려줘.">tCO2e 단위가 무슨 뜻인가요?</button>
+                        <button class="chat-chip-btn" data-chat="대한민국은 왜 상위권에 속해 있는 거야?">대한민국은 왜 상위권인가요?</button>
+                    </div>
+
+                    <div id="chat-messages" class="chat-message-list">
+                        <div class="chat-bubble chat-bubble-ai">
+                            안녕하세요! 방금 작성된 분석 보고서에 대해 궁금한 점이 있으시다면 언제든 질문해 주세요. 중학생도 이해하기 쉽게 설명해 드릴게요! 😊
+                        </div>
+                    </div>
+
+                    <div class="chat-input-bar">
+                        <input type="text" id="chat-input" placeholder="보고서에 대해 질문하기 (예: 왜 집계 행 12개를 뺀 거야?)" />
+                        <button id="btn-chat-send" class="btn btn-primary">전송</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 하단 시스템 상태 & 디버그 정보 (초보자 오류 보고용) -->
+        <section class="card system-log-section">
+            <div class="system-log-header">
+                <h3>🖥️ 시스템 상태 및 디버그 정보</h3>
+                <button id="btn-copy-debug" class="btn btn-outline-sm">디버그 상태 복사 (오류 시 AI에 전달용)</button>
+            </div>
+            <p class="hint-text">오류가 발생했을 때 이 상태를 그대로 복사하여 AI에게 질문하시면 한 번에 해결할 수 있습니다.</p>
+            <pre id="debug-status-pre">시스템 대기 중...</pre>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <p>ghg-insight-builder © 2026 | Google DeepMind Gemini & Pandas 기반 온실가스 배출량 분석기</p>
+    </footer>
+
+    <!-- 프론트엔드 핵심 로직 스크립트 연결 -->
+    <script src="/static/app.js"></script>
+</body>
+</html>
